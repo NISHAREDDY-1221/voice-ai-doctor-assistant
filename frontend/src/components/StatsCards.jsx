@@ -1,75 +1,84 @@
 import React from 'react';
-import { Users, CalendarCheck, Clock, CheckCircle2 } from 'lucide-react';
+import { Users, Calendar, CheckCircle2, XCircle } from 'lucide-react';
 
 /**
- * StatsCards displays summary metrics of the clinic:
- * - Total registered doctors
- * - Currently available slots
- * - Active booked appointments
- * - Total appointments handled
+ * StatsCards
+ * Compact, elegant KPI statistics cards (~105px height) designed for a premium SaaS workspace.
+ * Features:
+ * - Fixed elegant ~105px height (h-[105px])
+ * - Crisp numerical typography & balanced icon placement
+ * - Subtle slate borders and soft hover states
+ * - Displays live real-time counts directly from the backend
+ * - Eliminates verbose filler descriptions
  */
 export default function StatsCards({ doctorsCount = 0, slotsCount = 0, appointments = [] }) {
   const activeBookings = appointments.filter((a) => a.status === 'booked').length;
   const cancelledBookings = appointments.filter((a) => a.status === 'cancelled').length;
 
-  const stats = [
+  const kpis = [
     {
-      title: 'Total Doctors',
+      id: 'doctors',
+      label: 'Total Doctors',
       value: doctorsCount,
-      description: 'Active specialists',
       icon: Users,
-      color: 'blue',
-      accentBg: 'bg-blue-50 text-blue-600 border-blue-200',
+      iconColor: 'text-teal-600',
+      bgColor: 'bg-teal-50',
+      borderColor: 'border-teal-100/80',
     },
     {
-      title: 'Available Slots',
+      id: 'slots',
+      label: 'Available Slots',
       value: slotsCount,
-      description: 'Next 7 days in IST',
-      icon: Clock,
-      color: 'teal',
-      accentBg: 'bg-teal-50 text-teal-600 border-teal-200',
+      icon: Calendar,
+      iconColor: 'text-blue-600',
+      bgColor: 'bg-blue-50',
+      borderColor: 'border-blue-100/80',
     },
     {
-      title: 'Active Appointments',
+      id: 'active',
+      label: 'Active Appointments',
       value: activeBookings,
-      description: 'Confirmed bookings',
-      icon: CalendarCheck,
-      color: 'emerald',
-      accentBg: 'bg-emerald-50 text-emerald-600 border-emerald-200',
+      icon: CheckCircle2,
+      iconColor: 'text-emerald-600',
+      bgColor: 'bg-emerald-50',
+      borderColor: 'border-emerald-100/80',
     },
     {
-      title: 'Total Processed',
-      value: appointments.length,
-      description: `${cancelledBookings} cancelled`,
-      icon: CheckCircle2,
-      color: 'indigo',
-      accentBg: 'bg-indigo-50 text-indigo-600 border-indigo-200',
+      id: 'cancelled',
+      label: 'Cancelled Bookings',
+      value: cancelledBookings,
+      icon: XCircle,
+      iconColor: 'text-rose-600',
+      bgColor: 'bg-rose-50',
+      borderColor: 'border-rose-100/80',
     },
   ];
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      {stats.map((item, idx) => {
-        const Icon = item.icon;
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {kpis.map((kpi) => {
+        const Icon = kpi.icon;
         return (
           <div
-            key={idx}
-            className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-xs transition hover:shadow-sm"
+            key={kpi.id}
+            className="h-[105px] bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs hover:border-slate-300 hover:shadow-sm transition-all duration-200 flex flex-col justify-between"
           >
+            {/* Top Row: KPI Label & Compact Tinted Icon */}
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-slate-500 uppercase tracking-wide">
-                {item.title}
+              <span className="text-xs font-medium text-slate-500 tracking-tight">
+                {kpi.label}
               </span>
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center border ${item.accentBg}`}>
-                <Icon className="w-4 h-4" />
+              <div className={`w-8 h-8 rounded-xl ${kpi.bgColor} border ${kpi.borderColor} flex items-center justify-center shrink-0`}>
+                <Icon className={`w-4 h-4 ${kpi.iconColor}`} />
               </div>
             </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl sm:text-3xl font-bold text-slate-900">
-                {item.value}
+
+            {/* Bottom Row: Crisp Prominent Number */}
+            <div className="flex items-baseline">
+              <span className="text-2xl sm:text-[28px] font-bold text-[#0F172A] tracking-tight font-sans leading-none">
+                {kpi.value}
               </span>
             </div>
-            <p className="mt-1 text-xs text-slate-500">{item.description}</p>
           </div>
         );
       })}

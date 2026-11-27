@@ -208,8 +208,38 @@ async def run_voice_pipeline(
                     except Exception as e:
                         logger.debug(f"Error sending user transcript: {e}")
 
+            # Real Pipecat event: Patient finished speaking, LLM begins thinking & function execution
+            try:
+                await connection.send_app_message({
+                    "label": "rtvi-ai",
+                    "type": "server-message",
+                    "data": {
+                        "type": "bot-thinking",
+                        "value": True,
+                    },
+                    "type": "bot-thinking",
+                    "value": True,
+                })
+            except Exception as e:
+                logger.debug(f"Error sending bot-thinking event: {e}")
+
         @assistant_aggregator.event_handler("on_assistant_turn_stopped")
         async def on_assistant_turn_stopped(aggregator, message):
+            # Real Pipecat event: Assistant turn finished, clear thinking state
+            try:
+                await connection.send_app_message({
+                    "label": "rtvi-ai",
+                    "type": "server-message",
+                    "data": {
+                        "type": "bot-thinking",
+                        "value": False,
+                    },
+                    "type": "bot-thinking",
+                    "value": False,
+                })
+            except Exception as e:
+                logger.debug(f"Error resetting bot-thinking event: {e}")
+
             if message and message.content:
                 text = str(message.content).strip()
                 if text:
@@ -305,10 +335,7 @@ async def run_voice_pipeline(
                 return
             greeted = True
             logger.info(f"[{session_id}] Sending initial receptionist greeting to caller.")
-            greeting = (
-                "Hello! Thank you for calling Apollo Clinic. "
-                "How can I help you book or manage an appointment today?"
-            )
+            greeting = "Hello! I'm your AI appointment assistant. How can I help you today?"
             # Use TTSSpeakFrame to instruct ElevenLabs TTS to synthesize and stream speech
             await task.queue_frame(TTSSpeakFrame(greeting))
             # Also send the transcript to the frontend data channel immediately

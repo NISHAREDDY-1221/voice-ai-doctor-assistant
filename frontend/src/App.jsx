@@ -1,42 +1,14 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Header from './components/Header';
+import Sidebar from './components/Sidebar';
+import TopNav from './components/TopNav';
 import StatsCards from './components/StatsCards';
-import VoiceCallPanel from './components/VoiceCallPanel';
+import VoiceAssistantPanel from './components/VoiceAssistantPanel';
 import LiveTranscript from './components/LiveTranscript';
-import DoctorSlotsList from './components/DoctorSlotsList';
+import DoctorAvailability from './components/DoctorAvailability';
 import AppointmentsTable from './components/AppointmentsTable';
 import { fetchHealth, fetchDoctors, fetchSlots, fetchAppointments, API_BASE_URL } from './api';
 import { PipecatClient, RTVIEvent } from '@pipecat-ai/client-js';
 import { SmallWebRTCTransport } from '@pipecat-ai/small-webrtc-transport';
-
-/**
- * Main application dashboard for Voice AI Doctor Appointment Assistant.
- *
- * Integrates:
- * - Real-time SmallWebRTC audio pipeline with ElevenLabs STT/TTS and Gemini LLM
- * - Live transcript synchronized with incoming data-channel speech events
- * - Clinic statistics cards
- * - Real-time doctors and available appointment slots
- * - Appointments registry with masked phone numbers
- * - Automated polling (every 2.5s) and event-driven updates
- */
-export default function App() {
-  // REST API State
-  const [backendConnected, setBackendConnected] = useState(false);
-  const [doctors, setDoctors] = useState([]);
-  const [slots, setSlots] = useState([]);
-  const [appointments, setAppointments] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Voice WebRTC State
-  const [callState, setCallState] = useState('idle'); // 'idle' | 'connecting' | 'connected' | 'error'
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(null);
-  const [messages, setMessages] = useState([]);
-
-  // Client and Audio References
-  const clientRef = useRef(null);
-  const audioElementRef = useRef(null);
 
 const DIGIT_WORDS_MAP = {
   zero: '0', oh: '0',
@@ -106,16 +78,64 @@ function formatSpokenDigits(text) {
   return output.join(' ');
 }
 
+/**
+ * Voice AI Doctor Appointment Assistant
+ * Premium Healthcare AI SaaS Workspace.
+ */
+export default function App() {
+  // Navigation State ('overview' | 'assistant' | 'doctors' | 'appointments')
+  const [activeTab, setActiveTab] = useState('overview');
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // REST API State
+  const [backendConnected, setBackendConnected] = useState(false);
+  const [doctors, setDoctors] = useState([]);
+  const [slots, setSlots] = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Voice WebRTC State
+  const [callState, setCallState] = useState('idle'); // 'idle' | 'connecting' | 'connected' | 'error'
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isUserSpeaking, setIsUserSpeaking] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [callDurationSeconds, setCallDurationSeconds] = useState(0);
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [messages, setMessages] = useState([]);
+
+  // Client and Audio References
+  const clientRef = useRef(null);
+  const audioElementRef = useRef(null);
+
+  // Call duration counter
+  useEffect(() => {
+    let timer;
+    if (callState === 'connected') {
+      setCallDurationSeconds(0);
+      timer = setInterval(() => {
+        setCallDurationSeconds((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setCallDurationSeconds(0);
+    }
+    return () => clearInterval(timer);
+  }, [callState]);
+
+  const formattedCallDuration = `${Math.floor(callDurationSeconds / 60)
+    .toString()
+    .padStart(2, '0')}:${(callDurationSeconds % 60).toString().padStart(2, '0')}`;
+
   /**
-   * Add a message to the live transcript if it is not an exact duplicate or partial fragment.
-   * Filters out any word-level streaming tokens so only clean, full sentences are displayed.
+   * Add a message to the live transcript.
+   * Filters out word-level streaming fragments so only full sentences appear.
    */
   const addMessage = useCallback((role, text) => {
     if (!text || !text.trim()) return;
     const cleanText = formatSpokenDigits(text.trim());
 
-    // 1. Assistant always speaks in full sentences.
-    // Drop any 1-2 word isolated fragments (e.g. "Thank", "you", "Hello!") that lack sentence punctuation.
+    // Assistant always speaks in sentences
     if (role === 'assistant') {
       const words = cleanText.split(/\s+/).filter(Boolean);
       if (words.length <= 2 && !/[.!?]$/.test(cleanText)) {
@@ -124,20 +144,20 @@ function formatSpokenDigits(text) {
     }
 
     setMessages((prev) => {
-      // 2. Prevent word-level tokens from creating new bubbles if already present in any message in history
-      const alreadyPresent = prev.some(
-        (m) => m.role === role && (m.text === cleanText || m.text.includes(cleanText))
+      // Prevent duplicate bubbles from recent identical frames
+      const recentDuplicate = prev.slice(-2).some(
+        (m) => m.role === role && m.text.trim().toLowerCase() === cleanText.toLowerCase()
       );
-      if (alreadyPresent) {
+      if (recentDuplicate) {
         return prev;
       }
 
-      // 3. If previous was a prefix of the incoming sentence, upgrade it in-place
+      // If the preceding turn was an interim prefix of this completed sentence, upgrade it in-place
       if (prev.length > 0) {
         const last = prev[prev.length - 1];
         if (
           last.role === role &&
-          cleanText.startsWith(last.text) &&
+          cleanText.toLowerCase().startsWith(last.text.toLowerCase()) &&
           cleanText.length > last.text.length
         ) {
           const updated = [...prev];
@@ -186,7 +206,6 @@ function formatSpokenDigits(text) {
 
   /**
    * Initial page load: check health, fetch doctors list, and initial slots/appointments.
-   * Real-time updates occur event-driven via the WebRTC data channel (appointment_updated).
    */
   useEffect(() => {
     async function init() {
@@ -210,6 +229,7 @@ function formatSpokenDigits(text) {
   const handleStartCall = async () => {
     setErrorMessage(null);
     setCallState('connecting');
+    setIsMuted(false);
     setMessages([]); // Reset conversation transcript for fresh call session
 
     try {
@@ -217,7 +237,6 @@ function formatSpokenDigits(text) {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          // Stop probe tracks immediately so the transport manages device capture cleanly
           micStream.getTracks().forEach((t) => t.stop());
         } catch (micErr) {
           throw new Error('Microphone permission denied. Please allow microphone access to talk to the assistant.');
@@ -247,12 +266,15 @@ function formatSpokenDigits(text) {
       client.on(RTVIEvent.Disconnected, () => {
         setCallState('idle');
         setIsSpeaking(false);
+        setIsUserSpeaking(false);
+        setIsThinking(false);
       });
 
       client.on(RTVIEvent.Error, (err) => {
         console.error('PipecatClient error:', err);
         setErrorMessage(err?.message || 'Connection error occurred during the call.');
         setCallState('error');
+        setIsThinking(false);
       });
 
       // Remote bot audio track handler
@@ -265,14 +287,45 @@ function formatSpokenDigits(text) {
         }
       });
 
-      client.on(RTVIEvent.BotStartedSpeaking, () => setIsSpeaking(true));
-      client.on(RTVIEvent.BotStoppedSpeaking, () => setIsSpeaking(false));
+      // Real Pipecat voice pipeline events for distinct states:
+      // Speaking (teal): Bot active audio synthesis
+      client.on(RTVIEvent.BotStartedSpeaking, () => {
+        setIsSpeaking(true);
+        setIsThinking(false);
+      });
+      client.on(RTVIEvent.BotStoppedSpeaking, () => {
+        setIsSpeaking(false);
+      });
 
-      // Handle custom server messages (full-turn transcripts and appointment events)
+      // Listening (blue): User speech detected via Silero VAD
+      client.on(RTVIEvent.UserStartedSpeaking, () => {
+        setIsUserSpeaking(true);
+        setIsThinking(false);
+      });
+      client.on(RTVIEvent.UserStoppedSpeaking, () => {
+        setIsUserSpeaking(false);
+      });
+
+      // Thinking (purple): Pipecat LLM reasoning & function call execution
+      client.on(RTVIEvent.BotLlmStarted, () => {
+        setIsThinking(true);
+      });
+      client.on(RTVIEvent.BotLlmStopped, () => {
+        setIsThinking(false);
+      });
+
+      client.on(RTVIEvent.BotInterrupted, () => {
+        setIsSpeaking(false);
+        setIsThinking(false);
+      });
+
+      // Handle custom server messages (full-turn transcripts, thinking state & appointment updates)
       client.on(RTVIEvent.ServerMessage, (msg) => {
         const payload = msg?.data || msg;
         if (payload?.type === 'transcript' && payload.text) {
           addMessage(payload.role, payload.text);
+        } else if (payload?.type === 'bot-thinking') {
+          setIsThinking(Boolean(payload.value));
         } else if (payload?.type === 'appointment_updated') {
           // Immediately refresh slots and appointments
           refreshData();
@@ -286,7 +339,8 @@ function formatSpokenDigits(text) {
     } catch (err) {
       console.error('Failed to start call:', err);
       setErrorMessage(err?.message || 'Failed to start voice call.');
-      setCallState('idle');
+      setCallState('error');
+      setIsThinking(false);
       clientRef.current = null;
     }
   };
@@ -305,61 +359,162 @@ function formatSpokenDigits(text) {
       clientRef.current = null;
       setCallState('idle');
       setIsSpeaking(false);
+      setIsUserSpeaking(false);
+      setIsThinking(false);
+    }
+  };
+
+  /**
+   * Toggle microphone mute / unmute using Pipecat client API.
+   */
+  const handleToggleMute = () => {
+    if (clientRef.current) {
+      const nextMuted = !isMuted;
+      clientRef.current.enableMic(!nextMuted);
+      setIsMuted(nextMuted);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F5F7FA] text-[#0F172A] flex flex-col font-sans">
       {/* Hidden HTML audio element for assistant speech output */}
       <audio ref={audioElementRef} autoPlay playsInline className="hidden" />
 
-      {/* Top Navigation Bar */}
-      <Header backendConnected={backendConnected} callState={callState} />
+      {/* Dark Navy Sidebar Navigation (230px expanded, 68px collapsed) */}
+      <Sidebar
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        backendConnected={backendConnected}
+        mobileOpen={mobileOpen}
+        onCloseMobile={() => setMobileOpen(false)}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
+      />
 
-      {/* Main Dashboard Container */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-        {/* Metric Cards Row */}
-        <StatsCards
-          doctorsCount={doctors.length}
-          slotsCount={slots.length}
-          appointments={appointments}
+      {/* Main Workspace Column (with dynamic smooth padding for 230px/68px fixed desktop sidebar) */}
+      <div className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out ${isSidebarCollapsed ? 'lg:pl-[68px]' : 'lg:pl-[230px]'
+        }`}>
+        {/* Top Header */}
+        <TopNav
+          activeTab={activeTab}
+          backendConnected={backendConnected}
+          onOpenMobile={() => setMobileOpen(true)}
         />
 
-        {/* Voice Call & Live Transcript Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left Column: Voice Call Controls & Doctors */}
-          <div className="lg:col-span-6 space-y-6">
-            <VoiceCallPanel
-              callState={callState}
-              onStartCall={handleStartCall}
-              onEndCall={handleEndCall}
-              isSpeaking={isSpeaking}
-              errorMessage={errorMessage}
-            />
+        {/* Content Workspace */}
+        <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+          {/* TAB: OVERVIEW (Full Executive Workspace) */}
+          {activeTab === 'overview' && (
+            <div className="space-y-6">
+              {/* Compact Summary KPIs */}
+              <StatsCards
+                doctorsCount={doctors.length}
+                slotsCount={slots.length}
+                appointments={appointments}
+              />
 
-            <DoctorSlotsList doctors={doctors} slots={slots} />
-          </div>
+              {/* Primary Appointment Center: Voice Assistant & Live Transcript */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                <div className="lg:col-span-6">
+                  <VoiceAssistantPanel
+                    callState={callState}
+                    onStartCall={handleStartCall}
+                    onEndCall={handleEndCall}
+                    isSpeaking={isSpeaking}
+                    isUserSpeaking={isUserSpeaking}
+                    isThinking={isThinking}
+                    isMuted={isMuted}
+                    onToggleMute={handleToggleMute}
+                    callDuration={formattedCallDuration}
+                    errorMessage={errorMessage}
+                  />
+                </div>
 
-          {/* Right Column: Live Conversation Transcript */}
-          <div className="lg:col-span-6">
-            <LiveTranscript
-              messages={messages}
-              onClear={() => setMessages([])}
-            />
-          </div>
-        </div>
+                <div className="lg:col-span-6">
+                  <LiveTranscript
+                    messages={messages}
+                    onClear={() => setMessages([])}
+                  />
+                </div>
+              </div>
 
-        {/* Appointments Registry Table */}
-        <AppointmentsTable
-          appointments={appointments}
-          onRefresh={refreshData}
-        />
-      </main>
+              {/* Doctor Specialists Directory - Compact Preview */}
+              <DoctorAvailability
+                doctors={doctors}
+                slots={slots}
+                onRefresh={refreshData}
+                isLoading={isLoading}
+                isCompact={true}
+                onViewAll={() => setActiveTab('doctors')}
+              />
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
-        Voice AI Doctor Appointment Assistant • Built with Pipecat, Gemini, ElevenLabs, FastAPI & React
-      </footer>
+              {/* Appointments Registry Table - Compact Recent Activity (5 records) */}
+              <AppointmentsTable
+                appointments={appointments}
+                onRefresh={refreshData}
+                isLoading={isLoading}
+                isCompact={true}
+                onViewAll={() => setActiveTab('appointments')}
+              />
+            </div>
+          )}
+
+          {/* TAB: VOICE ASSISTANT (Dedicated Appointment Studio) */}
+          {activeTab === 'assistant' && (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                <div className="lg:col-span-6">
+                  <VoiceAssistantPanel
+                    callState={callState}
+                    onStartCall={handleStartCall}
+                    onEndCall={handleEndCall}
+                    isSpeaking={isSpeaking}
+                    isUserSpeaking={isUserSpeaking}
+                    isThinking={isThinking}
+                    isMuted={isMuted}
+                    onToggleMute={handleToggleMute}
+                    callDuration={formattedCallDuration}
+                    errorMessage={errorMessage}
+                  />
+                </div>
+
+                <div className="lg:col-span-6">
+                  <LiveTranscript
+                    messages={messages}
+                    onClear={() => setMessages([])}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB: DOCTORS (Dedicated Doctors Directory & Slot Matrix) */}
+          {activeTab === 'doctors' && (
+            <div className="space-y-6">
+              <DoctorAvailability
+                doctors={doctors}
+                slots={slots}
+                onRefresh={refreshData}
+                isLoading={isLoading}
+                isCompact={false}
+              />
+            </div>
+          )}
+
+          {/* TAB: APPOINTMENTS (Dedicated Appointments Registry Table - Full Management) */}
+          {activeTab === 'appointments' && (
+            <div className="space-y-6">
+              <AppointmentsTable
+                appointments={appointments}
+                onRefresh={refreshData}
+                isLoading={isLoading}
+                isCompact={false}
+              />
+            </div>
+          )}
+        </main>
+
+      </div>
     </div>
   );
 }

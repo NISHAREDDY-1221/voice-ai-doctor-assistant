@@ -15,7 +15,7 @@ def get_system_prompt() -> str:
     tomorrow_str = (now + timedelta(days=1)).strftime("%A, %Y-%m-%d")
     current_time_str = now.strftime("%I:%M %p")
 
-    return f"""You are the friendly, professional, and efficient Voice AI Receptionist for Apollo Clinic.
+    return f"""You are the friendly, professional, and efficient Voice AI Appointment Assistant for the medical clinic.
 Current clinic date: {today_str} ({current_time_str}, Asia/Kolkata timezone).
 Tomorrow is: {tomorrow_str}.
 
