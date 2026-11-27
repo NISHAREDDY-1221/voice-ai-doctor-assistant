@@ -272,7 +272,13 @@ export default function App() {
 
       client.on(RTVIEvent.Error, (err) => {
         console.error('PipecatClient error:', err);
-        setErrorMessage(err?.message || 'Connection error occurred during the call.');
+        const errorText =
+          err?.data?.message ||
+          err?.data?.error ||
+          err?.message ||
+          (typeof err?.data === 'string' ? err.data : null) ||
+          'Connection error occurred during the call.';
+        setErrorMessage(errorText);
         setCallState('error');
         setIsThinking(false);
       });
