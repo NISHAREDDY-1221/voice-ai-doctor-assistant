@@ -100,12 +100,9 @@ voice-ai-doctor-assistant/
 │   ├── session.py                     # In-memory session state & phone confirmation guard
 │   ├── database.py                    # SQLite schema definition & async connection pool
 │   ├── seed.py                        # Database seeder (5 doctors, 7 days of IST slots)
-│   └── tests/                         # Automated unit & integration test suite (22 tests)
-│       ├── test_api.py
-│       ├── test_appointments.py
-│       ├── test_confirmation_and_api.py
-│       ├── test_state.py
-│       └── test_tools.py
+│   └── tests/                         # Automated test suite (22 tests in 2 test suites)
+│       ├── test_appointments.py       # 13 tests: database, seeding, slots, booking, cancellation
+│       └── test_confirmation_and_api.py # 9 tests: phone confirmation guard, tools, REST API endpoints
 └── frontend/
     ├── .env.example                   # Frontend environment template
     ├── package.json                   # Dependencies & npm scripts
@@ -212,11 +209,23 @@ Execute the comprehensive 22-test automated test suite:
 python -m unittest discover backend/tests -v
 ```
 
-**Test Coverage Highlights:**
-- `test_tools.py`: Tool schema validation, availability querying, slot reservation.
-- `test_state.py`: Session management and phone confirmation readback state enforcement.
-- `test_api.py`: FastAPI health check, doctors catalog, slots, and appointments endpoints.
-- `test_appointments.py` & `test_confirmation_and_api.py`: Booking & cancellation lifecycle, telephone readback invariants, and conflict prevention.
+**Test Coverage Breakdown (22 Tests Total):**
+- **`backend/tests/test_appointments.py` (13 tests):**
+  - Database schema initialization, table constraints, and idempotent re-creation.
+  - Mock data seeder idempotency across multiple runs.
+  - Doctor availability filtering by doctor, speciality, date, and edge cases.
+  - Slot booking, past slot rejection, and duplicate booking prevention.
+  - Concurrent booking race conditions.
+  - Phone number normalization and invalid phone rejection.
+  - Cancellation slot release, caller authorization checks, and unknown phone handling.
+- **`backend/tests/test_confirmation_and_api.py` (9 tests):**
+  - Tool schemas registration for Gemini function calling.
+  - Rejection of booking prior to verbal phone confirmation readback.
+  - Successful booking after explicit caller confirmation.
+  - Invalidation of confirmation when the phone number changes.
+  - Cancellation requiring fresh verbal confirmation.
+  - FastAPI endpoints: `/api/health`, `/api/doctors`, `/api/slots`, and `/api/appointments`.
+  - Phone number masking verification (`987****210`).
 
 ### Build Frontend Production Bundle
 
